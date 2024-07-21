@@ -60,7 +60,7 @@ pip install -r requirements.txt
 Para iniciar a aplicação Streamlit, execute o seguinte comando:
 
 ```
-streamlit run agente_de_viagem.py
+streamlit run app.py
 ```
 
 #### Autor
