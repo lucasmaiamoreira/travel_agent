@@ -68,7 +68,6 @@ class OllamaChat(BaseChatModel):
     def _agenerate(self):
         return None
 
-# Inicializando o modelo
 url = "http://localhost:11434/api/generate"
 headers = {"Content-Type": "application/json"}
 model_name = "llama3"
@@ -138,21 +137,17 @@ class Agent:
 
 my_agent = Agent(chat)
 
-# Streamlit App
 st.set_page_config(page_title="Agente de Viagem Virtual")
 st.title("Agente de Viagem Virtual ✈️")
 
-# Sidebar for parameters
 st.sidebar.header("Parâmetros ⚙️")
 
 temperature = st.sidebar.slider("Temperatura: Controla a aleatoriedade das respostas geradas pelo modelo!", min_value=0.01, max_value=1.00, value=0.10, step=0.01)
 max_length = st.sidebar.slider("Comprimento máximo: Define o comprimento máximo da resposta gerada.", min_value=32, max_value=128, value=120, step=1)
 
-# Clear chat history button
 if st.sidebar.button("🗑️ Clear Chat History"):
     st.session_state['chat_history'] = [{"role": "assistant", "content": "Como posso ajudar com seus planos de viagem hoje?"}]
 
-# Main chat interface
 if 'chat_history' not in st.session_state:
     st.session_state['chat_history'] = [{"role": "assistant", "content": "Como posso ajudar com seus planos de viagem hoje?"}]
 
