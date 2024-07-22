@@ -1,18 +1,15 @@
 import streamlit as st
 import requests
 import json
+import time
 from langchain.chat_models.base import BaseChatModel
-from langchain.prompts.chat import (
-    ChatPromptTemplate,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate
-)
+from langchain.prompts.chat import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain.chains import SequentialChain, LLMChain
-from langchain.schema import BaseMessage, AIMessage, HumanMessage, SystemMessage, ChatResult, ChatGeneration
+from langchain.schema import BaseMessage, AIMessage, HumanMessage, LLMResult, ChatGeneration, ChatResult
 import logging
 from typing import List, Optional
 
-# Definindo a classe do modelo de chat
+
 class OllamaChat(BaseChatModel):
     url: str
     headers: dict
@@ -28,7 +25,7 @@ class OllamaChat(BaseChatModel):
         prompt += f"ASSISTENTE:"
         return prompt
 
-    def _generate(self, messages: List[BaseMessage], stop: Optional[List[str]] = None) -> ChatResult:
+    def _generate(self, messages: List[BaseMessage], stop: Optional[List[str]] = None) -> LLMResult:
         prompt = self.get_prompt(messages)
         payload = {
             "model": self.model_name,
@@ -36,33 +33,32 @@ class OllamaChat(BaseChatModel):
         }
         responses = []
         try:
-            response = requests.post(self.url, headers=self.headers, data=json.dumps(payload))
+            response = requests.post(self.url, headers=self.headers, data=json.dumps(payload), stream=True)
             
-            raw_response = response.content.decode('utf-8')
+            generated_text = ""
+            placeholder = st.empty()
 
-            # Separe os diferentes objetos JSON
-            json_objects = raw_response.split('\n')
-
-            # Inicialize uma lista para armazenar as respostas
-            responses = []
-            
-            for obj in json_objects:
-                if obj.strip():  # Certifique-se de ignorar linhas vazias
+            for chunk in response.iter_lines():
+                if chunk:
+                    decoded_chunk = chunk.decode('utf-8')
                     try:
-                        parsed_obj = json.loads(obj)
-                        responses.append(parsed_obj)
+                        parsed_obj = json.loads(decoded_chunk)
+                        if 'response' in parsed_obj:
+                            response_part = parsed_obj['response']
+                            generated_text += response_part
+                            placeholder.markdown(generated_text.strip())
+                            time.sleep(0.05)
                     except json.JSONDecodeError as e:
                         print(f"Erro ao decodificar JSON: {e}")
 
-            # Combine as respostas para formar a resposta final
-            final_response = ''.join([resp['response'] for resp in responses if 'response' in resp])
-            generated_text = final_response.strip()
+            generated_text = generated_text.strip()
             
         except requests.RequestException as e:
             generated_text = f"Erro na solicitação: {str(e)}"
-
+        
         ai_message = AIMessage(content=generated_text)
         chat_result = ChatResult(generations=[ChatGeneration(message=ai_message)])
+        
         return chat_result
 
     @property
@@ -79,7 +75,7 @@ model_name = "llama3"
 
 chat = OllamaChat(url=url, headers=headers, model_name=model_name)
 
-class ItineraryTemplate:
+class GeneralEducationTemplate:
     def __init__(self):
         self.system_template = """
         Você é um agente de viagens dedicado a ajudar os usuários a planejar suas viagens dos sonhos de forma eficiente e personalizada. 
@@ -114,21 +110,31 @@ class Agent:
         self.chat_model = chat_model
         self.verbose = verbose
 
-    def get_itinerary(self, request):
-        itinerary_template = ItineraryTemplate()
-        travel_agent = LLMChain(
+    def get_response(self, request):
+        template = GeneralEducationTemplate()
+        education_chain = LLMChain(
             llm=self.chat_model,
-            prompt=itinerary_template.chat_prompt,
+            prompt=template.chat_prompt,
             verbose=self.verbose,
-            output_key='agent_suggestion'
+            output_key='response'
         )
         overall_chain = SequentialChain(
-            chains=[travel_agent],
+            chains=[education_chain],
             input_variables=["request"],
-            output_variables=["agent_suggestion"],
+            output_variables=["response"],
             verbose=self.verbose
         )
-        return overall_chain({"request": request}, return_only_outputs=True)
+
+        try:
+            result = overall_chain({"request": request}, return_only_outputs=True)
+        
+            if 'response' not in result or not isinstance(result['response'], str):
+                raise ValueError(f"Expected result to have 'response' key with a string value, but got {result}")
+        
+            return result
+        except Exception as e:
+            self.logger.error(f"Error in get_response: {e}")
+            return {"response": "Desculpe, ocorreu um erro ao processar sua solicitação."}
 
 my_agent = Agent(chat)
 
@@ -150,22 +156,16 @@ if st.sidebar.button("🗑️ Clear Chat History"):
 if 'chat_history' not in st.session_state:
     st.session_state['chat_history'] = [{"role": "assistant", "content": "Como posso ajudar com seus planos de viagem hoje?"}]
 
-# Display chat history
 for chat in st.session_state['chat_history']:
     with st.chat_message(chat["role"]):
         st.markdown(chat["content"])
 
-# Input for user message
-if prompt := st.chat_input("Digite sua mensagem:", disabled=not st.sidebar.button):
+if prompt := st.chat_input("Digite sua pergunta ou tópico de interesse:"):
     st.session_state['chat_history'].append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Get response from agent
-    result = my_agent.get_itinerary(prompt)
-    response = result["agent_suggestion"]
-
-    # Add agent response to chat history
-    st.session_state['chat_history'].append({"role": "assistant", "content": response})
     with st.chat_message("assistant"):
-        st.markdown(response)
+        response = my_agent.get_response(prompt)["response"]
+    
+        st.session_state['chat_history'].append({"role": "assistant", "content": response})
